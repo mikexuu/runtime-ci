@@ -90,6 +90,14 @@ resources:
     access_key_id: {{s3_bucket_access_key_id}}
     secret_access_key: {{s3_bucket_secret_key}}
 
+- name: cf-vsphere-diego-manifest
+  type: s3
+  source:
+    bucket: cf-vsphere-diego-manifest
+    versioned_file: diego-deployment.yml
+    access_key_id: {{s3_bucket_access_key_id}}
+    secret_access_key: {{s3_bucket_secret_key}}
+
 - name: cf-bosh-lite-diego-manifest
   type: s3
   source:
@@ -1146,9 +1154,35 @@ jobs:
       cf-stubs: cat-env
     params:
       INFRASTRUCTURE: vsphere
-  - put: cf-vsphere-manifest
+  - task: create-diego-iaas-settings
+    file: runtime-ci/scripts/ci/create-iaas-settings/task.yml
+    input_mapping:
+      cf-manifest: manifest
+      deployments: cat-env
+      diego-release: diego-release-master
     params:
-      file: manifest/deployment.yml
+      INFRASTRUCTURE: vsphere
+      CF_MANIFEST_PATH: cf-manifest/deployment.yml
+  - task: create-diego-manifest
+    file: runtime-ci/scripts/ci/create-diego-manifest/task.yml
+    input_mapping:
+      diego-release: diego-release-master
+      cf-manifest: manifest
+      diego-stubs: cat-env
+    params:
+      BOSH_USER: {{vsphere_bosh_username}}
+      BOSH_PASSWORD: {{vsphere_bosh_password}}
+      BOSH_TARGET: https://bosh.cat.wild.cf-app.com
+      PROPERTY_OVERRIDES_PATH: stubs/diego/property-overrides.yml
+      INSTANCE_COUNT_OVERRIDES_PATH: stubs/diego/instance-count-overrides.yml
+      RELEASE_VERSIONS_PATH: stubs/diego/release-versions.yml
+  aggregate:
+    - put: cf-vsphere-manifest
+      params:
+        file: manifest/deployment.yml
+    - put: cf-vsphere-diego-manifest
+      params:
+        file: generated-diego-manifest/diego-deployment.yml
 
 - name: a1-diego-cats
   public: true
