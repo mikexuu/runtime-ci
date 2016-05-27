@@ -1,0 +1,135 @@
+#!/usr/bin/env ruby
+
+require 'yaml'
+
+def stringify_keys(target)
+  # I can't believe I have to implement this again
+
+  if target.is_a? Hash
+    Hash[target.map {|k,v| [k.to_s, stringify_keys(v)]}]
+  elsif target.is_a? Array
+    target.map { |obj| stringify_keys(obj) }
+  else
+    target
+  end
+end
+
+def new_resource(name, type, source={})
+  {
+    name: name,
+    type: type,
+    source: source
+  }
+end
+
+def new_job(name, plan)
+  {
+    name: name,
+    public: true,
+    serial: true,
+    plan: plan,
+  }
+end
+
+def job_name_from_task(task_name)
+  "build-#{task_name}-docker-image"
+end
+
+def build_image_job(task_name)
+  plan = [
+    {
+      timeout: '4h',
+      do: [
+        {
+          aggregate: [
+            {
+              get: 'weekly',
+              trigger: true
+            },
+            {
+              get: 'trigger-resource',
+              trigger: true,
+              passed: ['trigger-all-image-builds'],
+            },
+            {
+              get: "runtime-ci-#{task_name}",
+              trigger: true,
+            }
+          ]
+        },
+        {
+          put: "#{task_name}-pipeline-image",
+          params: {
+            build: "runtime-ci-#{task_name}/scripts/ci/#{task_name}",
+            push: true
+          }
+        }
+      ]
+    }
+  ]
+  new_job(job_name_from_task(task_name), plan)
+end
+
+def dockerfile_resource(task_name)
+  source = {
+    branch: "master",
+    uri: "https://github.com/cloudfoundry/runtime-ci.git",
+    paths: ["scripts/ci/#{task_name}/Dockerfile"]
+  }
+  new_resource("runtime-ci-#{task_name}", "git", source)
+end
+
+def docker_image_resource(task_name, dockerhub_username, dockerhub_password)
+  source = {
+    repository: "relintdockerhubpushbot/#{task_name}",
+    username: dockerhub_username,
+    password: dockerhub_password,
+    email: "cf-release-integration+dockerhub-push-bot@pivotal.io",
+  }
+  new_resource("#{task_name}-pipeline-image", "docker-image", source)
+end
+
+def get_tasks(scripts_repo_path)
+  path_prefix = File.join(scripts_repo_path, "scripts", "ci")
+  task_dirs = Dir.glob(File.join(path_prefix,  "*", "Dockerfile"))
+  tasks = task_dirs.map do |task_dir|
+    task_dir.gsub("/Dockerfile", "").gsub(path_prefix+"/", "")
+  end
+  tasks
+end
+
+scripts_repo_path = 'scripts-repo'
+dockerhub_username = ENV.fetch('DOCKERHUB_USERNAME')
+dockerhub_password = ENV.fetch('DOCKERHUB_PASSWORD')
+
+tasks = get_tasks(scripts_repo_path)
+
+pipeline_groups = [
+  { name: 'build-docker-images', jobs: [] }
+]
+
+resources = [
+  new_resource('weekly', 'time', start: '3:00 -0700', stop: '3:30 -0700', interval: '168h'),
+  new_resource('trigger-resource', 'time', interval: '2h'),
+]
+
+jobs = [
+  new_job("trigger-all-image-builds", [{get: 'trigger-resource'}])
+]
+
+tasks.each do |task|
+  jobs << build_image_job(task)
+  resources << dockerfile_resource(task)
+  resources << docker_image_resource(task, dockerhub_username, dockerhub_password)
+  pipeline_groups.first[:jobs] << job_name_from_task(task)
+end
+
+pipeline_yaml = {
+  groups: pipeline_groups,
+  resources: resources,
+  jobs: jobs,
+}
+
+f = File.new('pipeline-config/build-docker-images.yml', 'w')
+f.write(stringify_keys(pipeline_yaml).to_yaml)
+f.close

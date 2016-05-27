@@ -1,0 +1,21 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: relintdockerhubpushbot/generate-docker-image-pipeline
+
+inputs:
+- name: runtime-ci
+- name: scripts-repo
+
+outputs:
+- name: pipeline-config
+
+params:
+  DOCKERHUB_USERNAME:
+  DOCKERHUB_PASSWORD:
+
+run:
+  path: runtime-ci/scripts/ci/generate-docker-image-pipeline/task
