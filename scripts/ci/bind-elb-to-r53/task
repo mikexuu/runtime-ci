@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -xeu
+
+cf_router_load_balancer_url() {
+	aws cloudformation describe-stacks --stack-name="${1}" \
+		| jq -r '.Stacks[0].Outputs[] | select(.OutputKey == "CFRouterLoadBalancerURL") | .OutputValue'
+}
+
+pushd env-repo
+  stack_name=$(jq -r '.stack.name' < bbl-infrastructure/state.json)
+
+  cf_router_lb_url=$(cf_router_load_balancer_url "${stack_name}")
+popd
