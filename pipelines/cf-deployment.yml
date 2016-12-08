@@ -263,6 +263,62 @@ jobs:
       BLOBSTORE_DIRECTOR_PASSWORD: {{luna_blobstore_director_password}}
       POSTGRES_PASSWORD: {{luna_postgres_password}}
 
+- name: delete-deployment
+  public: true
+  serial_groups: [setup-deploy-and-test-fresh]
+  build_logs_to_retain: 100
+  plan:
+  - timeout: 4h
+    do:
+    - aggregate:
+      - get: runtime-ci
+        passed: [ delete-deployment ]
+      - get: luna-env
+    - task: extract-director-creds-from-terraform-env
+      file: runtime-ci/scripts/ci/extract-director-creds-from-terraform-env/task.yml
+      input_mapping:
+        env-repo: luna-env
+    - task: delete-deployment-cf
+      input_mapping:
+        env-repo: luna-env
+      file: runtime-ci/scripts/ci/delete-deployment-bosh-2-0/task.yml
+      params:
+        DEPLOYMENT_NAME: cf
+
+- name: deploy-releases
+  serial: true
+  serial_groups: [setup-deploy-and-test-fresh]
+  build_logs_to_retain: 100
+  plan:
+  - aggregate:
+    - get: runtime-ci
+    - get: cf-deployment-develop
+    - get: luna-env
+      passed: [ delete-deployment ]
+  - task: extract-director-creds-from-terraform-env
+    file: runtime-ci/scripts/ci/extract-director-creds-from-terraform-env/task.yml
+    input_mapping:
+      env-repo: luna-env
+  - task: bosh-deploy-cf
+    file: runtime-ci/scripts/ci/bosh-deploy/task.yml
+    input_mapping:
+      manifest: cf-deployment-develop
+      manifest-properties: luna-env
+    params:
+      TARGET_FILE:  target
+      USERNAME_FILE: username
+      PASSWORD_FILE: password
+      CA_CERT_FILE: ca-cert
+      MANIFEST_FILE: cf-deployment.yml
+      DEPLOYMENT_VARS_STORE: deployment-vars.yml
+      SYSTEM_DOMAIN: luna.cf-app.com
+      OPS_FILE: opsfiles/gcp.yml
+    ensure:
+      put: luna-env
+      params:
+        repository: updated-vars-store
+        rebase: true
+
 - name: destroy-bosh-director-fresh
   serial_groups: [setup-deploy-and-test]
   plan:
