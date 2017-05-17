@@ -27,6 +27,7 @@ groups:
 - name: releases
   jobs:
   - update-release-capi
+  - update-release-postgres
   - update-release-mysql
   - update-releases
   - update-releases-windows
@@ -471,6 +472,10 @@ resources:
   type: bosh-io-release
   source:
     repository: cloudfoundry/capi-release
+- name: postgres-release
+  type: bosh-io-release
+  source:
+    repository: cloudfoundry/postgres-release
 - name: cf-mysql-release
   type: bosh-io-release
   source:
@@ -2171,6 +2176,29 @@ jobs:
     params:
       rebase: true
       repository: updated-repo
+
+- name: update-release-postgres
+  serial: true
+  public: true
+  build_logs_to_retain: 100
+  plan:
+  - aggregate:
+    - get: runtime-ci
+    - get: cf-deployment-develop
+    - get: postgres-release
+      trigger: true
+      params:
+        tarball: false
+  - task: update-release-postgres
+    file: runtime-ci/tasks/update-single-release/task.yml
+    input_mapping:
+      release: postgres-release
+      deployment-configuration: cf-deployment-develop
+    params:
+      RELEASE_NAME: postgres
+      TARGET: opsfile
+      ORIGINAL_OPS_FILE_PATH: operation/use-postgres.yml
+      UPDATED_OPS_FILE_PATH: operation/use-postgres.yml
 
 - name: update-release-capi
   serial: true
